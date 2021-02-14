@@ -276,11 +276,14 @@ function! s:TryFormatterPython3()
     let verbose = &verbose || g:autoformat_verbosemode == 1
 
 python3 << EOF
-import vim, subprocess, os
+import vim, subprocess, os, re
 from subprocess import Popen, PIPE
 
 # The return code is `failure`, unless otherwise specified
 vim.command('return 1')
+
+# Close the quickfix window if we opened it previously.
+vim.command('cclose')
 
 text = bytes(os.linesep.join(vim.current.buffer[:]) + os.linesep, 'utf-8')
 formatprg = vim.eval('b:formatprg')
@@ -301,6 +304,28 @@ else:
     if stderrdata:
         if verbose:
             print('Formatter {} has errors: {}'.format(formattername, stderrdata))
+
+        # Add a quickfix item for every line of stderr.
+        filename = vim.eval('@%')
+        error_list = []
+        for line in stderrdata.splitlines():
+            matches = re.match('^.*?:(\\d+):(\\d+):\\s*(.*)$', str(line))
+            if matches:
+                error_list.append({
+                    'filename': filename,
+                    'lnum': matches[1],
+                    'col': matches[2],
+                    'text': matches[3],
+                })
+            else:
+                error_list.append({'text': str(line)})
+        vim.command('call setqflist(py3eval("error_list"), "r")')
+
+        # Show the quickfix window. It's automatically focused, so jump back to the
+        # previous window.
+        vim.command('copen')
+        vim.command('wincmd p')
+
     elif p.returncode > 0:
         if verbose:
             print('Formatter {} gives nonzero returncode: {}'.format(formattername, p.returncode))
